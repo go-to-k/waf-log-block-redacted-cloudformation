@@ -1,0 +1,70 @@
+AWSTemplateFormatVersion: 2010-09-09
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: "Project Name"
+        Parameters:
+          - PJName
+      - Label:
+          default: "ApiGateway Resource ARN"
+        Parameters:
+          - ApiGatewayResourceArn
+
+Parameters:
+  PJName:
+    Type: String
+  ApiGatewayResourceArn:
+    Type: String
+
+Resources:
+  ApiGatewayWebAclAssociation:
+    Type: AWS::WAFv2::WebACLAssociation
+    Properties:
+      ResourceArn: !Ref ApiGatewayResourceArn
+      WebACLArn: !GetAtt WAFWebACL.Arn
+
+  WAFWebACL:
+    Type: AWS::WAFv2::WebACL
+    Properties:
+      Name: !Sub "${PJName}-WebACL"
+      DefaultAction:
+        Block: {}
+      Scope: "REGIONAL"
+      VisibilityConfig:
+        CloudWatchMetricsEnabled: true
+        MetricName: !Sub "${PJName}-WebACL"
+        SampledRequestsEnabled: true
+
+  WAFLogsS3Bucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "aws-waf-logs-${PJName}"
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: True
+        BlockPublicPolicy: True
+        IgnorePublicAcls: True
+        RestrictPublicBuckets: True
+
+  WAFLogConfig:
+    Type: AWS::WAFv2::LoggingConfiguration
+    Properties:
+      LogDestinationConfigs:
+        - !GetAtt WAFLogsS3Bucket.Arn
+      ResourceArn: !GetAtt WAFWebACL.Arn
+      LoggingFilter:
+        DefaultBehavior: DROP
+        Filters:
+          - Behavior: KEEP
+            Conditions:
+              - ActionCondition:
+                  Action: BLOCK
+            Requirement: MEETS_ALL
+      RedactedFields:
+        - SingleHeader:
+            Name: "authorization"
